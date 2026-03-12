@@ -88,6 +88,7 @@ export async function POST(req: Request) {
 
     // 3. Stream the response using the Vercel AI SDK
     const result = await streamText({
+      // @ts-ignore - version mismatch between ai and @ai-sdk/openai due to legacy-peer-deps
       model: openai("gpt-4o-mini"),
       system: systemPrompt,
       messages: messages as Message[],

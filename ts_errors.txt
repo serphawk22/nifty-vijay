@@ -1,0 +1,15 @@
+src/app/api/chat/route.ts(91,7): error TS2322: Type 'OpenAIChatLanguageModel' is not assignable to type 'LanguageModelV1'.
+  Types of property 'doGenerate' are incompatible.
+    Type '(options: LanguageModelV1CallOptions) => Promise<{ text?: string | undefined; toolCalls?: LanguageModelV1FunctionToolCall[] | undefined; ... 5 more ...; logprobs?: LanguageModelV1LogProbs | undefined; }>' is not assignable to type '(options: LanguageModelV1CallOptions) => PromiseLike<{ text?: string | undefined; toolCalls?: LanguageModelV1FunctionToolCall[] | undefined; ... 8 more ...; logprobs?: LanguageModelV1LogProbs | undefined; }>'.
+      Types of parameters 'options' and 'options' are incompatible.
+        Type 'import("C:/banglore/stockmarket/node_modules/@ai-sdk/ui-utils/node_modules/@ai-sdk/provider/dist/index").LanguageModelV1CallOptions' is not assignable to type 'import("C:/banglore/stockmarket/node_modules/@ai-sdk/openai/node_modules/@ai-sdk/provider/dist/index").LanguageModelV1CallOptions'.
+          Type 'LanguageModelV1CallOptions' is not assignable to type '{ inputFormat: "messages" | "prompt"; mode: { type: "regular"; tools?: LanguageModelV1FunctionTool[] | undefined; } | { type: "object-json"; } | { type: "object-grammar"; schema: JSONSchema7; } | { ...; }; prompt: LanguageModelV1Prompt; }'.
+            Types of property 'mode' are incompatible.
+              Type '{ type: "regular"; tools?: (LanguageModelV1FunctionTool | LanguageModelV1ProviderDefinedTool)[] | undefined; toolChoice?: LanguageModelV1ToolChoice | undefined; } | { ...; } | { ...; }' is not assignable to type '{ type: "regular"; tools?: LanguageModelV1FunctionTool[] | undefined; } | { type: "object-json"; } | { type: "object-grammar"; schema: JSONSchema7; } | { ...; }'.
+                Type '{ type: "regular"; tools?: (LanguageModelV1FunctionTool | LanguageModelV1ProviderDefinedTool)[] | undefined; toolChoice?: LanguageModelV1ToolChoice | undefined; }' is not assignable to type '{ type: "regular"; tools?: LanguageModelV1FunctionTool[] | undefined; } | { type: "object-json"; } | { type: "object-grammar"; schema: JSONSchema7; } | { ...; }'.
+                  Type '{ type: "regular"; tools?: (LanguageModelV1FunctionTool | LanguageModelV1ProviderDefinedTool)[] | undefined; toolChoice?: LanguageModelV1ToolChoice | undefined; }' is not assignable to type '{ type: "regular"; tools?: LanguageModelV1FunctionTool[] | undefined; }'.
+                    Types of property 'tools' are incompatible.
+                      Type '(LanguageModelV1FunctionTool | LanguageModelV1ProviderDefinedTool)[] | undefined' is not assignable to type 'LanguageModelV1FunctionTool[] | undefined'.
+                        Type '(LanguageModelV1FunctionTool | LanguageModelV1ProviderDefinedTool)[]' is not assignable to type 'LanguageModelV1FunctionTool[]'.
+                          Type 'LanguageModelV1FunctionTool | LanguageModelV1ProviderDefinedTool' is not assignable to type 'LanguageModelV1FunctionTool'.
+                            Property 'parameters' is missing in type 'LanguageModelV1ProviderDefinedTool' but required in type 'LanguageModelV1FunctionTool'.
