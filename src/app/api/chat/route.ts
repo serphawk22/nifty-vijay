@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { openai } from "@ai-sdk/openai";
-import { streamText, Message, StreamingTextResponse } from "ai";
+import { streamText, Message } from "ai";
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
@@ -12,13 +12,10 @@ export async function POST(req: Request) {
     console.log("== CHAT API DEBUG ==");
     console.log("Incoming Pathname:", pathname);
 
-    console.log("== CHAT API DEBUG ==");
-    console.log("Incoming Pathname:", pathname);
-
     // 1. Determine Context based on the Pathname
     let contextPrompt = "";
 
-    if (pathname === "/dashboard") {
+    if (pathname === "/dashboard" || pathname === "/") {
       contextPrompt = `
       The user is currently on the main 'Dashboard' of the TradeVision stock market application.
       They are looking at general market trends, the NIFTY 50 index chart, and global market news.
@@ -66,24 +63,43 @@ export async function POST(req: Request) {
        They are filtering and scanning the Nifty 500 for potential trading opportunities based on volume, price, or performance metrics.
        Help them identify what makes a good screening setup.
        `;
+
+    } else if (pathname?.startsWith("/world-stocks")) {
+      const regionMatch = pathname.match(/region=([a-z]+)/);
+      const region = regionMatch ? regionMatch[1] : "us";
+      const regionNames: Record<string, string> = { us: "United States (S&P 500 companies)", europe: "Europe", asia: "Asia & Pacific", uk: "United Kingdom" };
+      const regionLabel = regionNames[region] || region;
+      contextPrompt = `
+       The user is on the 'World Stocks' page, currently viewing the '${regionLabel}' region.
+       They are browsing major global equities with live prices, market caps, P/E ratios, and daily changes.
+       Help them understand global market dynamics, how to compare international stocks, and what drives price movements in that region.
+       `;
     } else {
       contextPrompt = `The user is browsing the TradeVision application. Pathname is ${pathname}.`;
     }
 
-    console.log("Final Context Prompt:", contextPrompt);
-
     // 2. Define the System Persona
     const systemPrompt = `
-    You are TradeVision AI, a highly intelligent, professional, and concise financial assistant embedded in a stock market terminal.
-    You communicate clearly, using bullet points where necessary, and avoid unnecessary jargon unless asked.
+    You are Cutie AI, a highly intelligent, professional, and concise financial assistant embedded in a stock market terminal.
+    You communicate clearly, using bullet points where necessary.
     
     CURRENT CONTEXT:
     ${contextPrompt}
     
+    NAVIGATION ABILITIES:
+    - You can help users open ANY stock page directly.
+    - If a user asks to see a stock or page, you should explain you are opening it and then append a special command at the end of your message.
+    - Format: [NAVIGATE:SYMBOL,REGION]
+    - Examples:
+      - For Apple (US): [NAVIGATE:AAPL,us]
+      - For Reliance (India): [NAVIGATE:RELIANCE,in]
+      - For NIFTY 50 (India): [NAVIGATE:NIFTY 50,in]
+    - Always prefer the correct ticker symbol. For Indian stocks, if unsure, use common capital letters (e.g. INFY, TCS, RELIANCE).
+    
     CRITICAL RULES:
-    1. If the user asks for a stock prediction or decision (especially if they are on a specific stock page), DO NOT simply say "I cannot predict the future" or "seek a financial advisor" as your entire answer. 
-    2. Instead, you MUST provide a probabilistic analysis (e.g., "Based on the recent news of X, the short-term sentiment leans bullish/bearish because...") and summarize the potential risks.
-    3. Keep your answers relatively concise to fit well in a small chat window.
+    1. If the user asks for a stock prediction or decision, DO NOT say "I cannot predict the future". Provide a probabilistic analysis based on available context.
+    2. Keep your answers relatively concise to fit well in a small chat window.
+    3. Use the [NAVIGATE:...] tag whenever appropriate.
     `;
 
     // 3. Stream the response using the Vercel AI SDK

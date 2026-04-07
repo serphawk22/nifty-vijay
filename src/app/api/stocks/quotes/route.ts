@@ -1,301 +1,329 @@
 import { kite } from "@/lib/kite";
 import { NextRequest, NextResponse } from "next/server";
-import yahooFinance from "yahoo-finance2";
 import { prisma } from "@/lib/prisma";
-
-// Force yahooFinance to use its default export if it's wrapped
-// const yf = (yahooFinance as any).default || yahooFinance;
+import { NIFTY_50_SYMBOLS } from "@/lib/nifty50";
 
 export const dynamic = "force-dynamic";
+
+const AV_KEY = process.env.ALPHAVANTAGE_API_KEY || "";
+
+function isIndianStock(symbol: string): boolean {
+  const s = symbol.toUpperCase().trim();
+  
+  // Explicitly exclude common US indices/ETFs to prevent them being caught in the generic fallback
+  if (["SPY", "QQQ", "DIA", "IWM", "VOO", "IVV", "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META"].includes(s)) {
+    return false;
+  }
+
+  if (
+    s.endsWith(".NS") || 
+    s.endsWith(".BO") || 
+    s.startsWith("NSE:") || 
+    s.startsWith("BSE:") ||
+    ["NIFTY 50", "NIFTY BANK", "SENSEX"].includes(s) ||
+    NIFTY_50_SYMBOLS.includes(s)
+  ) {
+    return true;
+  }
+  return !s.includes(".") && s.length >= 2 && s.length <= 12;
+}
+
+function normalizeSymbol(symbol: string) {
+  const base = symbol.split(":")[1] || symbol.split(".")[0] || symbol;
+  const clean = base.toUpperCase().trim();
+  return {
+    base: clean,
+    nse: `NSE:${clean}`,
+    bse: `BSE:${clean}`,
+    yahoo: `${clean}.NS`,
+    avGlobal: `${clean}`, 
+    avIndia: `${clean}.BSE`
+  };
+}
+
+// Fetch live quote choosing the best API, using an already fetched batch for Kite
+async function getLiveQuote(symbol: string, preFetchedKiteQuotes: any = {}) {
+  const normalized = normalizeSymbol(symbol);
+  const isIndian = isIndianStock(symbol);
+
+  // 1. Kite (INDIAN ONLY)
+  if (isIndian) {
+    try {
+      const q = preFetchedKiteQuotes[normalized.nse];
+      const hasValidPrice = q && q.last_price > 0;
+      const timestampStr = q.timestamp ? (typeof q.timestamp === "string" ? q.timestamp : new Date(q.timestamp).toISOString()) : "";
+      const hasValidTime = q && q.timestamp && !timestampStr.startsWith("1970");
+
+      if (hasValidPrice && hasValidTime) {
+        const lastPrice = q.last_price;
+        const ohlcClose = q.ohlc?.close;
+        const ohlcOpen = q.ohlc?.open;
+
+        // When ohlc.close === last_price, Kite hasn't provided a real previous close
+        // (common for indices in mock/auth-invalid mode). Fall back to open price.
+        const refPrice = (ohlcClose && Math.abs(ohlcClose - lastPrice) > 0.01)
+          ? ohlcClose
+          : ohlcOpen;
+
+        const rawChange = refPrice ? lastPrice - refPrice : (q.net_change || 0);
+        const changePercent = refPrice && refPrice > 0
+          ? parseFloat(((rawChange / refPrice) * 100).toFixed(2))
+          : 0;
+
+        return {
+          price: lastPrice,
+          change: refPrice ? rawChange : (q.net_change || 0),
+          changePercent,
+          volume: q.volume || 0,
+          source: "kite",
+          ohlc: q.ohlc,
+          timestamp: q.timestamp || new Date().toISOString()
+        };
+      }
+    } catch (e) {
+      console.warn(`[Kite extract] Failed for ${symbol}:`, (e as Error).message);
+    }
+  }
+
+  // 2. Alpha Vantage (INDIAN OR GLOBAL)
+  if (AV_KEY) {
+    try {
+      const avSymbol = isIndian ? `NSE:${normalized.base}` : normalized.avGlobal;
+      const url = `https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=${avSymbol}&apikey=${AV_KEY}`;
+      const res = await fetch(url, { next: { revalidate: 60 } });
+      const json = await res.json();
+      const data = json["Global Quote"];
+      
+      if (data && data["05. price"]) {
+        const price = parseFloat(data["05. price"]);
+        const change = parseFloat(data["09. change"]);
+        const changePct = parseFloat(data["10. change percent"].replace("%", ""));
+        return {
+          price,
+          change,
+          changePercent: changePct,
+          volume: parseInt(data["06. volume"]),
+          source: "alphavantage",
+          ohlc: { close: price - change },
+          timestamp: new Date().toISOString()
+        };
+      }
+    } catch (e) {
+      console.warn(`[Alpha Vantage] Failed for ${symbol}:`, (e as Error).message);
+    }
+  }
+
+  // 3. Last Resort: Mock Data (For Dev/Demo)
+  if (isIndian) {
+    const symbolBaselines: Record<string, number> = {
+      "TCS": 3950,
+      "INFY": 1620,
+      "RELIANCE": 2850,
+      "HDFCBANK": 1540,
+      "TATAMOTORS": 940,
+      "WIPRO": 480,
+      "ITC": 425,
+      "BHARTIARTL": 1210,
+      "SBIN": 760,
+      "ICICIBANK": 1080,
+      "KOTAKBANK": 1780,
+      "LT": 3520,
+      "AXISBANK": 1120,
+      "MARUTI": 12500,
+      "SUNPHARMA": 1640,
+      "NIFTY 50": 22350,
+      "SENSEX": 73500,
+      "NIFTY BANK": 47500
+    };
+
+    const basePrice = symbolBaselines[normalized.base] || (500 + Math.random() * 2000);
+    const randomChange = (Math.random() - 0.5) * (basePrice * 0.02); // 2% max change
+    const currentPrice = basePrice + randomChange;
+    const changePercent = (randomChange / basePrice) * 100;
+    
+    return {
+      price: currentPrice,
+      change: randomChange,
+      changePercent: parseFloat(changePercent.toFixed(2)),
+      volume: Math.floor(Math.random() * 1000000),
+      source: "mock",
+      ohlc: { open: basePrice, high: currentPrice + 5, low: currentPrice - 5, close: basePrice },
+      timestamp: new Date().toISOString()
+    };
+  } else {
+    // US / Global - Use Twelve Data API if available
+    const tdKey = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY;
+    if (tdKey) {
+      try {
+        const url = `https://api.twelvedata.com/quote?symbol=${normalized.base}&apikey=${tdKey}`;
+        const res = await fetch(url, { next: { revalidate: 60 } });
+        const data = await res.json();
+        
+        // Twelve data returns status "error" if limit exceeded
+        if (data && data.close) {
+          const price = parseFloat(data.close);
+          const previousClose = parseFloat(data.previous_close);
+          const change = parseFloat(data.change);
+          const changePercent = parseFloat(data.percent_change);
+          
+          return {
+            price,
+            change,
+            changePercent,
+            volume: parseInt(data.volume) || 0,
+            source: "twelvedata",
+            ohlc: { open: parseFloat(data.open), high: parseFloat(data.high), low: parseFloat(data.low), close: previousClose },
+            timestamp: data.timestamp ? new Date(data.timestamp * 1000).toISOString() : new Date().toISOString()
+          };
+        }
+      } catch (e) {
+        console.warn(`[Twelve Data] Failed for ${symbol}:`, (e as Error).message);
+      }
+    }
+
+    // US Mock Emergency Fallback (If Twelve Data is rate limited or no API key)
+    let mockPrice = 500;
+    if (normalized.base === "SPY") mockPrice = 510;
+    else if (normalized.base === "QQQ") mockPrice = 440;
+    else if (normalized.base === "DIA") mockPrice = 390;
+    else mockPrice = 100 + (symbol.length * 10);
+
+    const randomChange = (Math.random() - 0.5) * 5;
+    const randomPercent = (randomChange / mockPrice) * 100;
+
+    return {
+      price: mockPrice + randomChange,
+      change: randomChange,
+      changePercent: parseFloat(randomPercent.toFixed(2)),
+      volume: 0,
+      source: "mock-us",
+      ohlc: { open: mockPrice, high: mockPrice + 2, low: mockPrice - 2, close: mockPrice },
+      timestamp: new Date().toISOString()
+    };
+  }
+
+  return null;
+}
+
+// Fetch fundamentals choosing the right API
+async function getFundamentals(symbol: string) {
+  const normalized = normalizeSymbol(symbol);
+  const isIndian = isIndianStock(symbol);
+  const today = new Date();
+  const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+
+  // 1. Try DB cache first
+  try {
+    const existing = await prisma.stockFundamental.findFirst({
+      where: { symbol: normalized.base, date: todayUTC },
+    });
+    if (existing && existing.fiftyTwoWeekHigh) return { ...existing, source: "db" };
+  } catch (e) {}
+
+  // 2. Alpha Vantage (OVERVIEW has 52 Week High/Low)
+  if (AV_KEY) {
+    try {
+      const avSymbol = isIndian ? normalized.avIndia : normalized.avGlobal;
+      const url = `https://www.alphavantage.co/query?function=OVERVIEW&symbol=${avSymbol}&apikey=${AV_KEY}`;
+      const res = await fetch(url);
+      const json = await res.json();
+      
+      if (json.Name && json["52WeekHigh"]) {
+        const data = {
+          symbol: normalized.base,
+          date: todayUTC,
+          longName: json.Name,
+          sector: json.Sector,
+          marketCap: parseFloat(json.MarketCapitalization) || null,
+          peRatio: parseFloat(json.TrailingPE) || null,
+          eps: parseFloat(json.EPS) || null,
+          dividendYield: parseFloat(json.DividendYield) || null,
+          fiftyTwoWeekHigh: parseFloat(json["52WeekHigh"]) || null,
+          fiftyTwoWeekLow: parseFloat(json["52WeekLow"]) || null,
+          avgVolume10d: parseInt(json.SharesOutstanding) || null,
+          lastUpdated: new Date()
+        };
+        
+        try {
+          await prisma.stockFundamental.upsert({
+            where: { symbol_date: { symbol: normalized.base, date: todayUTC } },
+            update: data,
+            create: data
+          });
+        } catch (e) {}
+        
+        return { ...data, source: "alphavantage" };
+      }
+    } catch (e) {}
+  }
+
+  return null;
+}
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const symbols = searchParams.get("symbols");
 
   if (!symbols || symbols.trim() === "" || symbols === "undefined") {
-    return NextResponse.json(
-      { success: true, data: [] },
-      { status: 200 }
-    );
+    return NextResponse.json({ success: true, data: [] });
   }
 
-  const symbolsArray = symbols.split(",");
+  const symbolsArray = symbols.split(",").map(s => s.trim().toUpperCase());
 
-  // Kite getQuote expects symbols prefixed with exchange if not provided, 
-  // but let's assume valid "NSE:SYMBOL" or just "SYMBOL" (defaulting to NSE if needed, but best to be explicit)
-  // Our instruments API returns 'symbol' as trading symbol (e.g. 'RELIANCE').
-  // getQuote needs 'NSE:RELIANCE'.
-
-  const kiteSymbols = symbolsArray.map((s) => {
-    if (s.includes(":")) return s;
-    if (s === "SENSEX" || s === "BSE-SENSEX") return `BSE:SENSEX`;
-    if (s === "FINNIFTY" || s === "NIFTY FIN SERVICE") return `NSE:NIFTY FIN SERVICE`;
-    if (s === "BANKNIFTY" || s === "NIFTY BANK") return `NSE:NIFTY BANK`;
-    if (s === "NIFTY" || s === "NIFTY 50") return `NSE:NIFTY 50`;
-    return `NSE:${s}`;
-  });
+  // BATCH FETCH FROM KITE TO AVOID RATE LIMITS!
+  const indianSymbols = symbolsArray.filter(isIndianStock).map(s => normalizeSymbol(s).nse);
+  let preFetchedKiteQuotes: any = {};
+  
+  if (indianSymbols.length > 0) {
+    try {
+      // Fetch all Indian symbols in a single request! Max 500 per request allowed by Kite.
+      preFetchedKiteQuotes = await (kite as any).getQuote(indianSymbols);
+    } catch (err: any) {
+      console.error("[Kite] Batch fetch failed:", err.message);
+    }
+  }
 
   try {
-    try {
-      let quotes: any = {};
+    const quotes = await Promise.all(symbolsArray.map(async (symbol) => {
       try {
-        quotes = await (kite as any).getQuote(kiteSymbols);
-      } catch (kiteError: any) {
-        console.error("Kite getQuote failed:", kiteError.message);
-        // If Kite fails, we cannot provide live prices. Fail gracefully or return error.
-        // Returning 500 is appropriate as this is the core function.
-        return NextResponse.json(
-          { success: false, error: "Failed to fetch live quotes from exchange", details: kiteError.message },
-          { status: 500 }
-        );
-      }
+        const quote = await getLiveQuote(symbol, preFetchedKiteQuotes);
+        if (!quote) return null;
 
-      // Get unique list of symbols (cleaned)
-      const cleanedSymbols = Array.from(new Set(symbolsArray.map(s => s.split(":")[1] || s).map(s => s.split("-")[0].toUpperCase().trim())));
-
-      // Use UTC Midnight to avoid timezone issues with @db.Date
-      const now = new Date();
-      const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-
-      // Check DB for existing fundamental data for today
-      let existingFundamentals: any[] = [];
-      try {
-        existingFundamentals = await prisma.stockFundamental.findMany({
-          where: {
-            symbol: { in: cleanedSymbols },
-            date: today
-          }
-        });
-      } catch (dbError) {
-        console.error("DB Fetch Error (Non-fatal):", dbError);
-        // Continue without fundamentals
-      }
-
-      const fundamentalMap: Record<string, any> = {};
-      const symbolsToFetch: string[] = [];
-
-      cleanedSymbols.forEach(symbol => {
-        const existing = existingFundamentals.find(f => f.symbol === symbol);
-        // Force refetch if dailyVolume is missing (schema migration)
-        if (existing && existing.dailyVolume != null) {
-          fundamentalMap[symbol] = {
-            marketCap: existing.marketCap,
-            trailingPE: existing.peRatio,
-            epsTrailingTwelveMonths: existing.eps,
-            epsForward: existing.epsForward,
-            dividendYield: existing.dividendYield,
-            beta: existing.beta,
-            averageDailyVolume10Day: existing.avgVolume10d,
-            sector: existing.sector,
-            longName: existing.longName,
-            fiftyTwoWeekHigh: existing.fiftyTwoWeekHigh,
-            fiftyTwoWeekLow: existing.fiftyTwoWeekLow,
-            dailyVolume: existing.dailyVolume
-          };
-        } else {
-          symbolsToFetch.push(symbol);
-        }
-      });
-
-      // User requested to fetch from Kite only. But we need Fundamentals.
-      // Enabling Yahoo Finance fetch for fundamentals only (Market Cap, PE, etc.)
-      if (symbolsToFetch.length > 0) {
-        // Create a promise for Yahoo Fetching
-        const yahooFetchPromise = async () => {
-          try {
-            const YFClass = (yahooFinance as any).default || yahooFinance;
-            const yf = new YFClass({ suppressNotices: ['yahooSurvey'] });
-
-            // Fetch one by one using quoteSummary (better data coverage for Sector/Growth)
-            // We do this in chunks of 5 parallel requests to avoid rate limits
-            for (let i = 0; i < symbolsToFetch.length; i += 5) {
-              const chunk = symbolsToFetch.slice(i, i + 5);
-
-              await Promise.all(chunk.map(async (sym) => {
-                try {
-                  let summary;
-                  const modules = ['summaryProfile', 'defaultKeyStatistics', 'financialData', 'price', 'summaryDetail'];
-
-                  try {
-                    // Try NSE first
-                    summary = await yf.quoteSummary(`${sym}.NS`, { modules }, { validateResult: false });
-                  } catch (nseError) {
-                    // If NSE fails, try BSE
-                    try {
-                      summary = await yf.quoteSummary(`${sym}.BO`, { modules }, { validateResult: false });
-                    } catch (bseError) {
-                      // Both failed. Insert empty record to avoid re-fetching for today.
-                      try {
-                        await prisma.stockFundamental.upsert({
-                          where: { symbol_date: { symbol: sym, date: today } },
-                          update: { lastUpdated: new Date() },
-                          create: { symbol: sym, date: today }
-                        });
-                      } catch (dbErr) { } // ignore
-                      return;
-                    }
-                  }
-
-                  if (!summary) return;
-
-                  const profile = summary.summaryProfile || {};
-                  const stats = summary.defaultKeyStatistics || {};
-                  const fin = summary.financialData || {};
-                  const price = summary.price || {};
-                  const details = summary.summaryDetail || {};
-
-                  // Map data
-                  const dataToSave = {
-                    longName: price.longName || profile.longBusinessSummary?.substring(0, 50), // Fallback
-                    sector: profile.sector,
-                    marketCap: price.marketCap || details.marketCap,
-                    peRatio: stats.trailingPE || stats.forwardPE,
-                    eps: stats.trailingEps,
-                    epsForward: stats.forwardEps,
-                    epsGrowth: stats.earningsQuarterlyGrowth || stats.earningsGrowth,
-                    dividendYield: stats.dividendYield || details.dividendYield,
-                    beta: stats.beta,
-                    avgVolume10d: price.averageDailyVolume10Day || details.averageVolume10days,
-                    currentPrice: price.regularMarketPrice || price.regularMarketOpen, // Store Yahoo Price
-                    fiftyTwoWeekHigh: details.fiftyTwoWeekHigh,
-                    fiftyTwoWeekLow: details.fiftyTwoWeekLow,
-                    dailyVolume: price.regularMarketVolume || details.volume,
-                    lastUpdated: new Date()
-                  };
-
-                  // Store specifically for today
-                  try {
-                    await prisma.stockFundamental.upsert({
-                      where: {
-                        symbol_date: {
-                          symbol: sym,
-                          date: today
-                        }
-                      },
-                      update: dataToSave,
-                      create: {
-                        symbol: sym,
-                        date: today,
-                        ...dataToSave
-                      }
-                    });
-                  } catch (dbErr) { console.error("DB Upsert Error:", dbErr); }
-
-                  // Update local map immediately so current request gets data
-                  fundamentalMap[sym] = dataToSave;
-
-                } catch (_err) {
-                  // Silently skip individual symbol failures
-                }
-              }));
-            }
-          } catch (err) {
-            console.error("Yahoo/DB Daily Update Error:", err);
-            // Don't throw, just log
-          }
-        };
-
-        // Wrap in a timeout race (max 2 seconds)
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve('timeout'), 2000));
-
-        // Make sure yahooFetchPromise never rejects
-        const safeYahooPromise = yahooFetchPromise().catch(err => console.error("Yahoo Promise Rejected:", err));
-
-        const result = await Promise.race([safeYahooPromise, timeoutPromise]);
-        if (result === 'timeout') {
-          console.warn("Yahoo Finance fetch timed out. Returning partial data.");
-        }
-      }
-
-      // Normalize with Live Price from Kite
-      const normalizedData = Object.keys(quotes).map((key) => {
-        const quote = quotes[key];
-        const symbol = key.replace("NSE:", "").replace("BSE:", "").toUpperCase().trim();
-        // Handle cases where symbol might be "INFY" or "NSE:INFY"
-
-        const cleanSymbol = symbol.split("-")[0];
-
-        const yData = fundamentalMap[cleanSymbol];
-
-        // Fallback for Price: If Kite returns 0, try to use Yahoo Finance price from DB or Summary
-        let price = quote.last_price || 0;
-        let close = quote.ohlc?.close || 0;
-        let volume = quote.volume || yData?.dailyVolume || 0;
-
-        // If Kite price is 0 (market closed/pre-open issue), try OHLC close, then Yahoo Price
-        if (price === 0) {
-          if (close > 0) {
-            price = close;
-          } else if (yData?.currentPrice) {
-            price = yData.currentPrice;
-          }
-        }
-
-        // console.log(`[${cleanSymbol}] Final price: ${price}`);
-
-        // Calculate change
-        let change = quote.net_change || 0;
-        let previousClose = 0;
-
-        if (change !== 0) {
-          // Calculate previous close from: price = previousClose + change
-          previousClose = price - change;
-        } else if (quote.ohlc?.close && quote.ohlc.close > 0) {
-          // Fix: Use previous close from OHLC if available (this is the correct reference for daily change)
-          previousClose = quote.ohlc.close;
-          change = price - previousClose;
-        } else if (quote.ohlc?.open && quote.ohlc.open > 0) {
-          // Fallback: use today's open as approximation (least accurate, but better than nothing if no prev close)
-          previousClose = quote.ohlc.open;
-          change = price - previousClose;
-        } else {
-          // No reliable historical data available
-          previousClose = price;
-          change = 0;
-        }
-
-        const changePercent = previousClose > 0 ? (change / previousClose) * 100 : 0;
+        const fundamentals = await getFundamentals(symbol);
 
         return {
-          symbol,
-          last_price: price, // Always Fresh from Kite
-          change: change,
-          change_percent: parseFloat(changePercent.toFixed(2)),
-          volume: volume,
+          symbol: symbol.split(":")[1] || symbol,
+          last_price: quote.price,
+          change: quote.change,
+          change_percent: quote.changePercent,
+          volume: quote.volume,
+          source: quote.source,
           timestamp: quote.timestamp,
           ohlc: quote.ohlc,
-          // Foundational data (Daily cached)
-          // Ensure we check all possible keys for market cap
-          market_cap: yData?.marketCap || yData?.market_cap || null,
-          pe_ratio: yData?.peRatio || yData?.trailingPE || yData?.pe_ratio || null, // Fixed casing
-          eps: yData?.eps || yData?.epsTrailingTwelveMonths || null,
-          sector: yData?.sector || null,
-          longName: yData?.longName || yData?.long_name || null,
-          div_yield: yData?.dividendYield || yData?.dividend_yield || null,
-          average_volume_10d: yData?.avgVolume10d || yData?.averageDailyVolume10Day || yData?.avg_volume_10d || null,
-          eps_forward: yData?.epsForward || yData?.eps_forward || null,
-          beta: yData?.beta || null,
-          eps_growth: yData?.epsGrowth || yData?.earningsGrowth || yData?.eps_growth || null,
-          fifty_two_week_high: yData?.fiftyTwoWeekHigh || null,
-          fifty_two_week_low: yData?.fiftyTwoWeekLow || null,
-          // Calculated Metrics
-          rel_volume: (yData?.avgVolume10d || yData?.averageDailyVolume10Day)
-            ? parseFloat(((volume) / (yData?.avgVolume10d || yData?.averageDailyVolume10Day)).toFixed(2))
-            : null
+          
+          longName: fundamentals?.longName || null,
+          sector: fundamentals?.sector || null,
+          market_cap: fundamentals?.marketCap || null,
+          pe_ratio: fundamentals?.peRatio || null,
+          eps: fundamentals?.eps || null,
+          div_yield: fundamentals?.dividendYield || null,
+          fifty_two_week_high: fundamentals?.fiftyTwoWeekHigh || null,
+          fifty_two_week_low: fundamentals?.fiftyTwoWeekLow || null,
+          average_volume_10d: fundamentals?.avgVolume10d || null
         };
-      });
+      } catch (err) {
+        console.error(`Error processing ${symbol}:`, err);
+        return null;
+      }
+    }));
 
-      return NextResponse.json({
-        success: true,
-        data: normalizedData
-      });
-    } catch (error: any) {
-      console.error("Critical API Error:", error);
-      return NextResponse.json(
-        { success: false, error: "Failed to fetch stock data", details: error.message },
-        { status: 500 }
-      );
-    }
+    const validQuotes = quotes.filter(q => q !== null);
+
+    return NextResponse.json({
+      success: true,
+      data: validQuotes,
+      count: validQuotes.length
+    });
   } catch (error: any) {
     console.error("Critical API Error:", error);
     return NextResponse.json(

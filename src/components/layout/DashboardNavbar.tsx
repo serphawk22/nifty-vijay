@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Search, Bell, Menu, User, Settings, LogOut, LayoutDashboard, BarChart3, PieChart, Wallet, TrendingUp } from "lucide-react";
+import { Search, Bell, Menu, User, Settings, LogOut, LayoutDashboard, BarChart3, PieChart, Wallet, TrendingUp, Flag } from "lucide-react";
 import { MarketsMenu } from "./MarketsMenu";
 import { SearchBar } from "./SearchBar";
 import { ThemeToggle } from "../ThemeToggle";
 import { NavbarNewsMenu } from "./NavbarNewsMenu";
 
-export function DashboardNavbar() {
+export function DashboardNavbar({ region = "in" }: { region?: "us" | "in" }) {
   const router = useRouter();
   const [user, setUser] = useState<{ name: string; email: string; image?: string } | null>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -70,15 +70,17 @@ export function DashboardNavbar() {
             >
               Screener
             </Link>
-            <Link
-              href="/volume-analysis"
-              className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-            >
-              Volume Analysis
-            </Link>
+
             <div className="flex items-center ml-1">
               <NavbarNewsMenu />
             </div>
+            <Link
+              href="/alerts"
+              className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-accent transition-colors flex items-center gap-1.5"
+            >
+              <Bell className="h-3.5 w-3.5" />
+              Alerts
+            </Link>
           </nav>
         </div>
 
@@ -88,7 +90,7 @@ export function DashboardNavbar() {
 
           {/* Search Bar */}
           <div className="hidden lg:block">
-            <SearchBar />
+            <SearchBar region={region} />
           </div>
 
           <button className="relative p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
@@ -154,14 +156,7 @@ export function DashboardNavbar() {
                 All Stocks
               </Link>
 
-              <Link
-                href="/volume-analysis"
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                onClick={() => setIsMobileMenuOpen(false)}
-              >
-                <BarChart3 className="h-5 w-5 text-indigo-500" />
-                Volume Analysis
-              </Link>
+
 
               <Link
                 href="/profile"
@@ -179,6 +174,24 @@ export function DashboardNavbar() {
               >
                 <BarChart3 className="h-5 w-5 text-purple-500" />
                 Market Indices
+              </Link>
+
+              <Link
+                href="/world-stocks"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <PieChart className="h-5 w-5 text-cyan-500" />
+                World Stocks
+              </Link>
+
+              <Link
+                href="/all-us-stocks"
+                className="flex items-center gap-3 px-4 py-3 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted transition-colors pl-8"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                <Flag className="h-4 w-4 text-blue-500" />
+                All US Stocks
               </Link>
 
               <div className="h-px bg-border my-2"></div>

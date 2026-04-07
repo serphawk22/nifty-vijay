@@ -8,7 +8,6 @@ generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
   provider  = "postgresql"
   // Use pooler URL (port 6543) for runtime queries on Vercel serverless
@@ -24,37 +23,44 @@ model User {
   emailVerified DateTime? @map("email_verified")
   password      String
   image         String?
-  
+
   // OAuth fields
-  provider      String?   // "google", "github", "credentials"
-  providerId    String?   @map("provider_id")
-  
+  provider   String? // "google", "github", "credentials"
+  providerId String? @map("provider_id")
+
   // Profile fields
-  phone         String?
-  bio           String?
-  
+  phone String?
+  bio   String?
+
   // Portfolio tracking
-  balance       Float     @default(0)
-  investedAmount Float    @default(0) @map("invested_amount")
-  
+  balance        Float @default(0)
+  investedAmount Float @default(0) @map("invested_amount")
+
   // Preferences
-  currency      String    @default("INR")
-  theme         String    @default("dark")
-  
+  currency String @default("INR")
+  theme    String @default("dark")
+
   // Account status
-  isActive      Boolean   @default(true) @map("is_active")
-  isVerified    Boolean   @default(false) @map("is_verified")
-  
+  isActive   Boolean @default(true) @map("is_active")
+  isVerified Boolean @default(false) @map("is_verified")
+
+  // Password Reset
+  resetToken       String?   @map("reset_token")
+  resetTokenExpiry DateTime? @map("reset_token_expiry")
+
   // Timestamps
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  lastLoginAt   DateTime? @map("last_login_at")
-  
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  lastLoginAt DateTime? @map("last_login_at")
+
   // Relations
-  watchlists    Watchlist[]
-  portfolios    Portfolio[]
-  transactions  Transaction[]
-  
+  watchlists         Watchlist[]
+  portfolios         Portfolio[]
+  transactions       Transaction[]
+  alertSubscriptions AlertSubscription[]
+  alertSentLogs      AlertSentLog[]
+  priceAlerts        PriceAlert[]
+
   @@map("users")
 }
 
@@ -65,23 +71,23 @@ model Watchlist {
   stocks    String[] // Array of stock symbols
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("watchlists")
 }
 
 model Portfolio {
   id        String   @id @default(cuid())
   userId    String   @map("user_id")
-  symbol    String   // Stock symbol (e.g., "RELIANCE")
+  symbol    String // Stock symbol (e.g., "RELIANCE")
   quantity  Int
   avgPrice  Float    @map("avg_price")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
-  
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@unique([userId, symbol])
   @@map("portfolios")
 }
@@ -90,14 +96,14 @@ model Transaction {
   id          String   @id @default(cuid())
   userId      String   @map("user_id")
   symbol      String
-  type        String   // "BUY" or "SELL"
+  type        String // "BUY" or "SELL"
   quantity    Int
   price       Float
   totalAmount Float    @map("total_amount")
   createdAt   DateTime @default(now()) @map("created_at")
-  
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("transactions")
 }
 
@@ -105,22 +111,68 @@ model StockFundamental {
   id               String   @id @default(cuid())
   symbol           String
   date             DateTime @default(now()) @db.Date
-  longName         String?   @map("long_name")
+  longName         String?  @map("long_name")
   sector           String?
-  marketCap        Float?    @map("market_cap")
-  peRatio          Float?    @map("pe_ratio")
+  marketCap        Float?   @map("market_cap")
+  peRatio          Float?   @map("pe_ratio")
   eps              Float?
-  epsForward       Float?    @map("eps_forward")
-  epsGrowth        Float?    @map("eps_growth") // EPS Diluted Growth TTM YoY
-  dividendYield    Float?    @map("dividend_yield")
+  epsForward       Float?   @map("eps_forward")
+  epsGrowth        Float?   @map("eps_growth") // EPS Diluted Growth TTM YoY
+  dividendYield    Float?   @map("dividend_yield")
   beta             Float?
-  avgVolume10d     Float?    @map("avg_volume_10d")
+  avgVolume10d     Float?   @map("avg_volume_10d")
   currentPrice     Float?
-  fiftyTwoWeekHigh Float?    @map("fifty_two_week_high")
-  fiftyTwoWeekLow  Float?    @map("fifty_two_week_low")
-  dailyVolume      Float?    @map("daily_volume")
+  fiftyTwoWeekHigh Float?   @map("fifty_two_week_high")
+  fiftyTwoWeekLow  Float?   @map("fifty_two_week_low")
+  dailyVolume      Float?   @map("daily_volume")
   lastUpdated      DateTime @default(now()) @map("last_updated")
 
   @@unique([symbol, date])
   @@map("stock_fundamentals")
+}
+
+model AlertSubscription {
+  id               String   @id @default(cuid())
+  userId           String   @map("user_id")
+  symbol           String
+  alertHighEnabled Boolean  @default(true) @map("alert_high_enabled")
+  alertLowEnabled  Boolean  @default(true) @map("alert_low_enabled")
+  // threshold: alert when price is within X% of the 52w high/low (default 1%)
+  thresholdPct     Float    @default(1.0) @map("threshold_pct")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, symbol])
+  @@map("alert_subscriptions")
+}
+
+model AlertSentLog {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  symbol    String
+  alertType String   @map("alert_type") // "52W_HIGH" | "52W_LOW"
+  sentAt    DateTime @default(now()) @map("sent_at")
+  // One entry per (userId, symbol, alertType, day) prevents re-sending the same day
+  sentDate  DateTime @map("sent_date") @db.Date
+  User      User     @relation(fields: [userId], references: [id])
+
+  @@unique([userId, symbol, alertType, sentDate])
+  @@map("alert_sent_logs")
+}
+
+model PriceAlert {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  symbol      String
+  targetPrice Float    @map("target_price")
+  direction   String   // "ABOVE" | "BELOW"
+  isTriggered Boolean  @default(false) @map("is_triggered")
+  createdAt   DateTime @default(now()) @map("created_at")
+  triggeredAt DateTime? @map("triggered_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("price_alerts")
 }

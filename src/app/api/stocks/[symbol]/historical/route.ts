@@ -155,9 +155,14 @@ export async function GET(
         : (fallbackResponse?.data?.candles || fallbackResponse?.candles || []);
 
       if (fallbackCandles.length > 0) {
-        // Group by day and pick the latest day
-        const lastCandleDate = dayjs(fallbackCandles[fallbackCandles.length - 1][0]).tz(IST).format("YYYY-MM-DD");
-        candles = fallbackCandles.filter((c: any) => dayjs(c[0]).tz(IST).format("YYYY-MM-DD") === lastCandleDate);
+        const lastCandle = fallbackCandles[fallbackCandles.length - 1];
+        const lastDateVal = lastCandle[0] || lastCandle.date;
+        const lastCandleDate = dayjs(lastDateVal).tz(IST).format("YYYY-MM-DD");
+        
+        candles = fallbackCandles.filter((c: any) => {
+          const cDate = c[0] || c.date;
+          return dayjs(cDate).tz(IST).format("YYYY-MM-DD") === lastCandleDate;
+        });
         console.log(`[Historical Fallback] Holiday detected. Using data from ${lastCandleDate} (${candles.length} candles)`);
       }
     }

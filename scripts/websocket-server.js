@@ -4,16 +4,21 @@ const { createServer } = require("http");
 require("dotenv").config();
 
 const port = process.env.PORT || 3001;
+
+// Build CORS allow-list from env so deploys don't need code changes
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  process.env.NEXT_PUBLIC_APP_URL,
+  process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+].filter(Boolean);
+
+console.log("[CORS] Allowed origins:", allowedOrigins);
+
 const httpServer = createServer();
 const io = new Server(httpServer, {
   cors: {
-    origin: [
-      "http://localhost:3000",
-      "https://latest-ti4r.onrender.com",
-      "https://latest-2jlp.onrender.com",
-      "https://nifty-test-2.vercel.app",
-      "https://nifty-test-2-cq10kjrai-swifthubschool-engs-projects.vercel.app"
-    ],
+    origin: allowedOrigins,
     methods: ["GET", "POST"]
   }
 });
@@ -165,6 +170,31 @@ setInterval(async () => {
     console.error("Error in fetch cycle:", error.message);
   }
 }, 2000);
+
+// ─── Alert Check: ping the Next.js alert API every 5 minutes ─────────────────
+const ALERT_API_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+const ALERT_API_KEY = process.env.ALERT_API_KEY || "internal-alert-key";
+
+setInterval(async () => {
+  try {
+    // Only check during market hours (09:15 – 15:30 IST)
+    const nowIST = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" }));
+    const h = nowIST.getHours();
+    const m = nowIST.getMinutes();
+    const minuteOfDay = h * 60 + m;
+    if (minuteOfDay < 9 * 60 + 15 || minuteOfDay > 15 * 60 + 30) return;
+
+    const res = await fetch(`${ALERT_API_URL}/api/alerts/check`, {
+      headers: { "x-alert-auth": ALERT_API_KEY }
+    });
+    const json = await res.json();
+    if (json.emailsSent > 0) {
+      console.log(`[Alerts] Sent ${json.emailsSent} alert email(s)`);
+    }
+  } catch (err) {
+    console.error("[Alerts] Check failed:", err.message);
+  }
+}, 5 * 60 * 1000); // Every 5 minutes
 
 httpServer.listen(port, () => {
   console.log(`WebSocket server running on port ${port}`);

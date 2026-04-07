@@ -5,6 +5,16 @@ import { createChart, ColorType, IChartApi, ISeriesApi, CrosshairMode, Candlesti
 import { useSocket } from "@/hooks/use-socket";
 import { TimeframeValue } from "./TimeframeSelector";
 import { RangeValue } from "./RangeSelector";
+import { useTwelveDataSocket } from "@/hooks/useTwelveDataSocket";
+
+// Simple helper to detect if a stock is likely Indian. 
+function isIndianStock(symbol: string, instrumentToken?: number): boolean {
+  if (instrumentToken && instrumentToken > 0) return true;
+  const s = symbol.toUpperCase().trim();
+  if (s.endsWith(".NS") || s.endsWith(".BO")) return true;
+  if (["NIFTY 50", "NIFTY BANK", "SENSEX", "BANKNIFTY", "FINNIFTY"].includes(s)) return true;
+  return false;
+}
 
 interface TradingChartProps {
   symbol: string;
@@ -34,7 +44,10 @@ export function TradingChart({ symbol, instrumentToken, interval, range }: Tradi
   const candlestickSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const currentBarRef = useRef<any>(null);
 
-  const { socket } = useSocket();
+  const isIndian = isIndianStock(symbol, instrumentToken);
+
+  const { socket: kiteSocket } = useSocket();
+  const { data: twelveDataTick } = useTwelveDataSocket(!isIndian ? symbol : "");
   const [loading, setLoading] = useState(true);
 
   // Initialize Chart
@@ -101,9 +114,9 @@ export function TradingChart({ symbol, instrumentToken, interval, range }: Tradi
     };
   }, []);
 
-  // Fetch History & Subscribe
+  // Fetch History
   useEffect(() => {
-    if (!instrumentToken || !candlestickSeriesRef.current) return;
+    if (!candlestickSeriesRef.current || !chartRef.current) return;
 
     const fetchHistory = async () => {
       setLoading(true);
@@ -121,34 +134,69 @@ export function TradingChart({ symbol, instrumentToken, interval, range }: Tradi
           default: from.setDate(from.getDate() - 1);
         }
 
-        const res = await fetch(`/api/stocks/history?token=${instrumentToken}&interval=${interval}&from=${from.toISOString()}&to=${to.toISOString()}&range=${range}`);
-        const json = await res.json();
+        let candles: any[] = [];
 
-        if (json.status === "ok" && Array.isArray(json.data)) {
-          // Manual aggregation logic would go here for unsupported intervals like 2m, 3m if not natively supported by Kite
-          // For now, assume the backend is passing the string and relying on the Kite proxy.
-          // Note: Kite API only supports specific intervals so production usage usually requires aggregating 1m candles.
-          // We will render whatever is returned.
+        if (isIndian) {
+          // Indian Stocks -> existing backend Kite proxy
+          if (!instrumentToken) return;
+          const res = await fetch(`/api/stocks/history?token=${instrumentToken}&interval=${interval}&from=${from.toISOString()}&to=${to.toISOString()}&range=${range}`);
+          const json = await res.json();
 
-          let candles = json.data.map((c: any) => {
-            const d = new Date(c[0] || c.date);
-            let time: Time;
-            if (["day", "week", "month"].includes(interval)) {
-              time = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
-            } else {
-              time = (Math.floor(d.getTime() / 1000) + 19800) as UTCTimestamp;
+          if (json.status === "ok" && Array.isArray(json.data)) {
+            candles = json.data.map((c: any) => {
+              const d = new Date(c[0] || c.date);
+              let time: Time;
+              if (["day", "week", "month"].includes(interval)) {
+                time = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+              } else {
+                time = (Math.floor(d.getTime() / 1000) + 19800) as UTCTimestamp;
+              }
+              return {
+                time, open: c[1] || c.open, high: c[2] || c.high, low: c[3] || c.low, close: c[4] || c.close, volume: c[5] || c.volume
+              };
+            });
+          }
+        } else {
+          // US Stocks/Commodities -> Twelve Data REST API
+          const apiKey = process.env.NEXT_PUBLIC_TWELVEDATA_API_KEY;
+          if (apiKey) {
+            // TwelveData intervals: 1min, 5min, 15min, 30min, 45min, 1h, 2h, 4h, 1day, 1week, 1month
+            let mappedInterval = "1min";
+            if (interval.includes("minute")) mappedInterval = interval.replace("minute", "min");
+            if (interval.includes("hour")) mappedInterval = interval.replace("hour", "h");
+            if (interval === "day") mappedInterval = "1day";
+            
+            const dp = range === "1m" || range === "3m" || range === "1y" || range === "5y" ? 500 : 100;
+
+            const res = await fetch(`https://api.twelvedata.com/time_series?symbol=${symbol}&interval=${mappedInterval}&outputsize=${dp}&apikey=${apiKey}`);
+            const json = await res.json();
+            
+            if (json.status === "ok" && Array.isArray(json.values)) {
+              // Twelve data returns chronological descending (newest first). Need to reverse.
+              const reversed = [...json.values].reverse();
+              candles = reversed.map((c: any) => {
+                const d = new Date(c.datetime);
+                let time: Time;
+                if (mappedInterval.includes("day") || mappedInterval.includes("week") || mappedInterval.includes("month")) {
+                  time = { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+                } else {
+                  // UNIX timestamp. Give browser Local tz offset.
+                  time = (Math.floor(d.getTime() / 1000) - d.getTimezoneOffset() * 60) as UTCTimestamp;
+                }
+                return {
+                  time,
+                  open: parseFloat(c.open),
+                  high: parseFloat(c.high),
+                  low: parseFloat(c.low),
+                  close: parseFloat(c.close),
+                  volume: parseFloat(c.volume)
+                };
+              });
             }
+          }
+        }
 
-            return {
-              time,
-              open: c[1] || c.open,
-              high: c[2] || c.high,
-              low: c[3] || c.low,
-              close: c[4] || c.close,
-              volume: c[5] || c.volume
-            };
-          });
-
+        if (candles.length > 0) {
           candles.sort((a: any, b: any) => {
             const getTime = (t: Time) => typeof t === 'object' ? new Date(t.year, t.month - 1, t.day).getTime() : (t as number) * 1000;
             return getTime(a.time) - getTime(b.time);
@@ -167,12 +215,10 @@ export function TradingChart({ symbol, instrumentToken, interval, range }: Tradi
           candles = uniqueCandles;
 
           candlestickSeriesRef.current?.setData(candles);
-
           chartRef.current?.timeScale().fitContent();
 
           if (candles.length > 0) {
             currentBarRef.current = candles[candles.length - 1];
-
             candlestickSeriesRef.current?.createPriceLine({
               price: candles[candles.length - 1].close,
               color: '#2962FF',
@@ -191,73 +237,83 @@ export function TradingChart({ symbol, instrumentToken, interval, range }: Tradi
     };
 
     fetchHistory();
-  }, [instrumentToken, interval, range]);
+  }, [symbol, instrumentToken, interval, range, isIndian]);
 
-  // Handle Realtime Updates
-  useEffect(() => {
-    if (!socket || !candlestickSeriesRef.current) return;
+  // Update Chart Bar Helper
+  const updateBarOnChart = (price: number, tickDate: Date) => {
+    let currentBar = currentBarRef.current;
+    let candleTime: Time;
 
-    const handleTick = (data: any) => {
-      if (data.instrument_token === instrumentToken) {
-        const price = data.last_price;
-        let currentBar = currentBarRef.current;
-        const tickDate = new Date();
+    if (["day", "week", "month"].includes(interval)) {
+      candleTime = { year: tickDate.getFullYear(), month: tickDate.getMonth() + 1, day: tickDate.getDate() };
+    } else {
+      let tickTime = Math.floor(tickDate.getTime() / 1000);
+      if (isIndian) tickTime += 19800; // Kite needs IST offset mapping
+      else tickTime -= tickDate.getTimezoneOffset() * 60; // Local timezone mapping for external US
 
-        let candleTime: Time;
-
-        if (["day", "week", "month"].includes(interval)) {
-          candleTime = { year: tickDate.getFullYear(), month: tickDate.getMonth() + 1, day: tickDate.getDate() };
-        } else {
-          const tickTime = Math.floor(tickDate.getTime() / 1000) + 19800; // Add IST offset
-          let periodSeconds = 60;
-          switch (interval) {
-            case "minute": periodSeconds = 60; break;
-            case "2minute": periodSeconds = 120; break;
-            case "3minute": periodSeconds = 180; break;
-            case "5minute": periodSeconds = 300; break;
-            case "10minute": periodSeconds = 600; break;
-            case "15minute": periodSeconds = 900; break;
-            case "30minute": periodSeconds = 1800; break;
-            case "60minute": periodSeconds = 3600; break;
-            case "4hour": periodSeconds = 14400; break;
-          }
-          candleTime = (tickTime - (tickTime % periodSeconds)) as UTCTimestamp;
-        }
-
-        const isNewCandle = () => {
-          if (!currentBar) return true;
-          if (typeof candleTime === 'object' && typeof currentBar.time === 'object') {
-            const t1 = candleTime as any;
-            const t2 = currentBar.time as any;
-            return t1.year > t2.year || (t1.year === t2.year && t1.month > t2.month) || (t1.year === t2.year && t1.month === t2.month && t1.day > t2.day);
-          } else if (typeof candleTime === 'number' && typeof currentBar.time === 'number') {
-            return candleTime > currentBar.time;
-          }
-          return false;
-        };
-
-        if (isNewCandle()) {
-          const newBar = { time: candleTime, open: price, high: price, low: price, close: price, volume: 0 };
-          currentBar = newBar;
-          currentBarRef.current = newBar;
-          candlestickSeriesRef.current?.update(newBar);
-        } else {
-          const updatedBar = {
-            ...currentBar,
-            high: Math.max(currentBar.high, price),
-            low: Math.min(currentBar.low, price),
-            close: price,
-          };
-          currentBar = updatedBar;
-          currentBarRef.current = updatedBar;
-          candlestickSeriesRef.current?.update(updatedBar);
-        }
+      let periodSeconds = 60;
+      switch (interval) {
+        case "minute": periodSeconds = 60; break;
+        case "2minute": periodSeconds = 120; break;
+        case "3minute": periodSeconds = 180; break;
+        case "5minute": periodSeconds = 300; break;
+        case "10minute": periodSeconds = 600; break;
+        case "15minute": periodSeconds = 900; break;
+        case "30minute": periodSeconds = 1800; break;
+        case "60minute": periodSeconds = 3600; break;
+        case "4hour": periodSeconds = 14400; break;
       }
+      candleTime = (tickTime - (tickTime % periodSeconds)) as UTCTimestamp;
+    }
+
+    const isNewCandle = () => {
+      if (!currentBar) return true;
+      if (typeof candleTime === 'object' && typeof currentBar.time === 'object') {
+        const t1 = candleTime as any;
+        const t2 = currentBar.time as any;
+        return t1.year > t2.year || (t1.year === t2.year && t1.month > t2.month) || (t1.year === t2.year && t1.month === t2.month && t1.day > t2.day);
+      } else if (typeof candleTime === 'number' && typeof currentBar.time === 'number') {
+        return candleTime > currentBar.time;
+      }
+      return false;
     };
 
-    socket.on("tick", handleTick);
-    return () => { socket.off("tick", handleTick); };
-  }, [socket, instrumentToken, interval]);
+    if (isNewCandle()) {
+      const newBar = { time: candleTime, open: price, high: price, low: price, close: price, volume: 0 };
+      currentBar = newBar;
+      currentBarRef.current = newBar;
+      candlestickSeriesRef.current?.update(newBar);
+    } else {
+      const updatedBar = {
+        ...currentBar,
+        high: Math.max(currentBar.high, price),
+        low: Math.min(currentBar.low, price),
+        close: price,
+      };
+      currentBar = updatedBar;
+      currentBarRef.current = updatedBar;
+      candlestickSeriesRef.current?.update(updatedBar);
+    }
+  };
+
+  // Indian: Handle Kite Socket Updates
+  useEffect(() => {
+    if (!isIndian || !kiteSocket || !candlestickSeriesRef.current) return;
+    const handleTick = (data: any) => {
+      if (data.instrument_token === instrumentToken) updateBarOnChart(data.last_price, new Date());
+    };
+    kiteSocket.on("tick", handleTick);
+    return () => { kiteSocket.off("tick", handleTick); };
+  }, [kiteSocket, instrumentToken, interval, isIndian]);
+
+  // US: Handle Twelve Data Socket Updates
+  useEffect(() => {
+    if (isIndian || !twelveDataTick || !candlestickSeriesRef.current) return;
+    // We already filter to matching symbol inside the hook, but let's be careful:
+    if (twelveDataTick.symbol === symbol) {
+       updateBarOnChart(twelveDataTick.price, new Date(twelveDataTick.timestamp * 1000 || Date.now()));
+    }
+  }, [twelveDataTick, symbol, interval, isIndian]);
 
   return (
     <div className="w-full h-full relative" style={{ backgroundColor: '#131722' }}>

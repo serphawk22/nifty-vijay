@@ -20,9 +20,9 @@ app.prepare().then(() => {
     cors: {
       origin: [
         "http://localhost:3000",
-        "https://latest-ti4r.onrender.com",
-        "https://latest-2jlp.onrender.com",
-        "https://nifty-test-2.vercel.app",
+        // "https://latest-ti4r.onrender.com",
+        // "https://latest-2jlp.onrender.com",
+        // "https://nifty-test-2.vercel.app",
       ],
       methods: ["GET", "POST"],
     },
@@ -82,8 +82,9 @@ app.prepare().then(() => {
         const data = quotes[idx.key];
         if (!data) return;
         const change = data.net_change || 0;
-        const prev = data.ohlc?.close || data.last_price;
-        const percent = prev > 0 ? (change / prev) * 100 : 0;
+        // Use Zerodha's own change_percent directly — recomputing it from ohlc.close
+        // is wrong after market close (today's close !== yesterday's close as denominator)
+        const percent = data.change_percent ?? (data.ohlc?.close > 0 ? (change / data.ohlc.close) * 100 : 0);
         io.emit("index-update", {
           symbol: idx.symbol,
           price: data.last_price,
@@ -101,7 +102,7 @@ app.prepare().then(() => {
         if (!data || !data.last_price) return;
         const prev = data.ohlc?.close || 0;
         const change = data.net_change || 0;
-        const percent = prev > 0 ? (change / prev) * 100 : 0;
+        const percent = data.change_percent ?? (prev > 0 ? (change / prev) * 100 : 0);
         io.to(symbol).emit("stock-update", {
           symbol,
           price: data.last_price,

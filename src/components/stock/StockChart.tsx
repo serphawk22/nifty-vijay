@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { ArrowUpRight, ArrowDownRight, Activity, CandlestickChart } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PriceAlertModal } from "@/components/PriceAlertModal";
 
 interface StockChartProps {
   symbol: string;
@@ -118,22 +119,27 @@ export function StockChart({ symbol, stockData }: StockChartProps) {
         </div>
 
         {/* Price Display */}
-        <div className="flex items-baseline gap-3">
-          <span className="text-4xl md:text-5xl font-bold tracking-tight text-foreground">
-            ₹{price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
-          <span className={cn(
-            "flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-xs md:text-sm font-semibold",
-            displayChange >= 0
-              ? "text-green-500 bg-green-500/10"
-              : "text-red-500 bg-red-500/10"
-          )}>
-            {displayChange >= 0
-              ? <ArrowUpRight className="h-3 w-3 md:h-4 md:w-4" />
-              : <ArrowDownRight className="h-3 w-3 md:h-4 md:w-4" />}
-            {displayChange > 0 ? "+" : ""}{displayChange.toFixed(2)}
-            ({displayChangePercent.toFixed(2)}%)
-          </span>
+        <div className="flex items-end justify-between w-full">
+          <div className="flex items-baseline gap-3">
+            <span className="text-4xl md:text-5xl font-bold tracking-tight text-foreground">
+              ₹{price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className={cn(
+              "flex items-center gap-1 px-2 py-1 md:px-3 md:py-1.5 rounded-lg text-xs md:text-sm font-semibold mb-1",
+              displayChange >= 0
+                ? "text-green-500 bg-green-500/10"
+                : "text-red-500 bg-red-500/10"
+            )}>
+              {displayChange >= 0
+                ? <ArrowUpRight className="h-3 w-3 md:h-4 md:w-4" />
+                : <ArrowDownRight className="h-3 w-3 md:h-4 md:w-4" />}
+              {displayChange > 0 ? "+" : ""}{displayChange.toFixed(2)}
+              ({displayChangePercent.toFixed(2)}%)
+            </span>
+          </div>
+          <div>
+            <PriceAlertModal symbol={symbol} currentPrice={price} />
+          </div>
         </div>
       </div>
 

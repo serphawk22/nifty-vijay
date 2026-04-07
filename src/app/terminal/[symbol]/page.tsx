@@ -15,26 +15,24 @@ export default async function TerminalPage({ params }: PageProps) {
   // Clean symbol
   const cleanSymbol = decodeURIComponent(symbol).toUpperCase();
 
-  // Find Instrument Token
-  const instruments = await fetchInstruments();
-  const instrument = instruments.find((i: any) => i.symbol === cleanSymbol);
+  const isIndian = !["AAPL", "MSFT", "GOOGL", "AMZN", "META", "TSLA", "NVDA"].includes(cleanSymbol) && 
+                   !cleanSymbol.endsWith(".US"); // quick heuristic
 
-  if (!instrument) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#131722] text-white">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Instrument Not Found</h1>
-          <p className="text-gray-400">Could not find token for {cleanSymbol}</p>
-          <Link href="/dashboard">
-            <Button variant="outline" className="mt-4 text-black bg-white hover:bg-gray-200">Back to Market</Button>
-          </Link>
-        </div>
-      </div>
-    );
+  // Find Instrument Token if it's likely Indian
+  let instrumentToken = 0;
+  if (isIndian) {
+    const instruments = await fetchInstruments();
+    const instrument = instruments.find((i: any) => i.symbol === cleanSymbol);
+    
+    // For our US hybrid logic, we just pass 0 if Kite token isn't found.
+    // TradingChart checks `isIndian` directly now, so it will correctly divert 0/missing tokens if it isn't an Indian stock.
+    if (instrument) {
+      instrumentToken = instrument.instrument_token;
+    }
   }
 
   // Render the modular Chart Terminal which handles layout internally
   return (
-    <ChartTerminal symbol={cleanSymbol} instrumentToken={instrument.instrument_token} />
+    <ChartTerminal symbol={cleanSymbol} instrumentToken={instrumentToken} />
   );
 }

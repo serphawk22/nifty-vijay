@@ -2,9 +2,10 @@
 
 import React, { useEffect, useRef } from "react";
 import { useChat, Message } from "ai/react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Image from "next/image";
 import { Send, X, Bot, User, Sparkles, Loader2, RefreshCcw } from "lucide-react";
+import ReactMarkdown from "react-markdown";
 import { cn } from "@/lib/utils";
 
 interface AIChatModalProps {
@@ -14,10 +15,11 @@ interface AIChatModalProps {
 
 export function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // We use a custom fetch wrapper to dynamically inject the current pathname on EVERY request
-  const { messages, input, handleInputChange, handleSubmit, isLoading, reload, stop } = useChat({
+  const { messages, input, handleInputChange, handleSubmit, isLoading, reload, stop, setMessages } = useChat({
     api: "/api/chat",
     fetch: async (url, options) => {
       // Intercept the outgoing request to inject the latest pathname
@@ -28,14 +30,69 @@ export function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
       }
       return fetch(url, options);
     },
-    initialMessages: [
-      {
-        id: "welcome",
-        role: "assistant",
-        content: "Hi there! I'm your TradeVision AI assistant. I can analyze the current page you're on to give you insights, such as stock predictions based on recent news. How can I help you today?"
+    onFinish: (message) => {
+      // Check for navigation tags: [NAVIGATE:SYMBOL,REGION]
+      const navRegex = /\[NAVIGATE:([^,]+),([^\]]+)\]/;
+      const match = message.content.match(navRegex);
+      
+      if (match) {
+        const symbol = match[1].trim();
+        const region = match[2].trim().toLowerCase();
+        
+        console.log(`[Chat Navigation Tag Detected] SYMBOL: ${symbol}, REGION: ${region}`);
+        
+        const path = region === "us"
+          ? `/us-stocks/${encodeURIComponent(symbol)}`
+          : `/stock/${encodeURIComponent(symbol)}`;
+          
+        router.push(path);
+        onClose(); // Auto-close chat on navigation
       }
-    ]
+    }
   });
+
+  // Persist messages to LocalStorage
+  const STORAGE_KEY = "cutie-ai-chat-history";
+
+  // Load from LocalStorage on mount
+  useEffect(() => {
+    const savedMessages = localStorage.getItem(STORAGE_KEY);
+    if (savedMessages) {
+      try {
+        const parsedMessages = JSON.parse(savedMessages);
+        if (Array.isArray(parsedMessages) && parsedMessages.length > 0) {
+          setMessages(parsedMessages);
+        } else {
+          // If empty or invalid, set the default welcome message
+          setMessages([
+            {
+              id: "welcome",
+              role: "assistant",
+              content: "Hi there! I'm your Cutie AI assistant. I can analyze the current page you're on to give you insights, such as stock predictions based on recent news. How can I help you today?"
+            }
+          ]);
+        }
+      } catch (e) {
+        console.error("Failed to parse chat history", e);
+      }
+    } else {
+      // Set the default welcome message if no history exists
+      setMessages([
+        {
+          id: "welcome",
+          role: "assistant",
+          content: "Hi there! I'm your Cutie AI assistant. I can analyze the current page you're on to give you insights, such as stock predictions based on recent news. How can I help you today?"
+        }
+      ]);
+    }
+  }, [setMessages]);
+
+  // Save to LocalStorage whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+    }
+  }, [messages]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -56,7 +113,7 @@ export function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
             <Image src="/ai-bot.jpg" alt="AI Assistant" fill className="object-cover" />
           </div>
           <div>
-            <h3 className="font-semibold text-sm">TradeVision AI</h3>
+            <h3 className="font-semibold text-sm">Cutie AI</h3>
             <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase font-semibold tracking-wider">
               <span className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -110,7 +167,23 @@ export function AIChatModal({ isOpen, onClose }: AIChatModalProps) {
                 ? "bg-primary text-primary-foreground rounded-tr-sm"
                 : "bg-card border border-border text-foreground rounded-tl-sm leading-relaxed"
             )}>
-              {m.content}
+              {m.role === "user" ? (
+                m.content
+              ) : (
+                <div className="space-y-2 break-words text-sm">
+                  <ReactMarkdown
+                    components={{
+                      strong: ({node, ...props}) => <span className="font-semibold" {...props} />,
+                      p: ({node, ...props}) => <p className="leading-relaxed" {...props} />,
+                      ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1" {...props} />,
+                      ol: ({node, ...props}) => <ol className="list-decimal pl-4 space-y-1" {...props} />,
+                      li: ({node, ...props}) => <li className="marker:text-muted-foreground" {...props} />,
+                    }}
+                  >
+                    {m.content}
+                  </ReactMarkdown>
+                </div>
+              )}
             </div>
           </div>
         ))}

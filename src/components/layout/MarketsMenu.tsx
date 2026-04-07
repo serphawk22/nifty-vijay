@@ -18,14 +18,13 @@ import {
   Flag,
   Newspaper,
   BarChart2,
-  TrendingUp,
-  Bitcoin,
-  Activity,
-  DollarSign,
-  Landmark,
   Building2,
   PieChart,
-  Briefcase
+  Briefcase,
+  TrendingUp,
+  Activity,
+  DollarSign,
+  Landmark
 } from "lucide-react";
 
 // Types for our menu data
@@ -61,7 +60,6 @@ const categories: Category[] = [
   { id: "news", label: "News", icon: <Newspaper className="h-4 w-4" /> },
   { id: "indices", label: "Indices", icon: <BarChart2 className="h-4 w-4" /> },
   { id: "stocks", label: "Stocks", icon: <TrendingUp className="h-4 w-4" /> },
-  { id: "crypto", label: "Crypto", icon: <Bitcoin className="h-4 w-4" /> },
   { id: "futures", label: "Futures", icon: <Activity className="h-4 w-4" /> },
   { id: "forex", label: "Forex", icon: <DollarSign className="h-4 w-4" /> },
   { id: "bonds", label: "Government bonds", icon: <Landmark className="h-4 w-4" /> },
@@ -75,7 +73,7 @@ const subCategories: SubCategory[] = [
     category_id: "world",
     title: "Overview",
     items: [
-      { label: "Sectors and industries", href: "#" },
+      { label: "Sectors and industries", href: "/screener" },
     ]
   },
   {
@@ -93,17 +91,44 @@ const subCategories: SubCategory[] = [
     category_id: "world",
     title: "WORLD STOCKS",
     items: [
-      { label: "World biggest companies", href: "#" },
-      { label: "Largest non-U.S. companies", href: "#" },
-      { label: "World largest employers", href: "#" },
+      { label: "United States (S&P 500)", href: "/dashboard-us" },
+      { label: "All US Stocks", href: "/all-us-stocks" },
+      { label: "Europe", href: "/world-stocks?region=europe" },
+      { label: "Asia & Pacific", href: "/world-stocks?region=asia" },
+      { label: "United Kingdom", href: "/world-stocks?region=uk" },
     ]
   },
-  // Default fallback for other categories not explicitly detailed
+  // Countries
+  {
+    category_id: "countries",
+    title: "Americas",
+    items: [
+      { label: "United States", href: "/dashboard-us" },
+      { label: "All US Stocks", href: "/all-us-stocks" },
+    ]
+  },
+  {
+    category_id: "countries",
+    title: "Europe",
+    items: [
+      { label: "European Markets", href: "/world-stocks?region=europe" },
+      { label: "United Kingdom", href: "/world-stocks?region=uk" },
+    ]
+  },
+  {
+    category_id: "countries",
+    title: "Asia",
+    items: [
+      { label: "Asia & Pacific", href: "/world-stocks?region=asia" },
+      { label: "India (NSE)", href: "/market" },
+    ]
+  },
+  // Stocks
   {
     category_id: "stocks",
     title: "Overview",
     items: [
-      { label: "Sectors and industries", href: "#" },
+      { label: "Sectors and industries", href: "/screener" },
     ]
   },
   {
@@ -118,6 +143,28 @@ const subCategories: SubCategory[] = [
     ]
   },
   {
+    category_id: "stocks",
+    title: "WORLD STOCKS",
+    items: [
+      { label: "United States", href: "/dashboard-us" },
+      { label: "All US Stocks", href: "/all-us-stocks" },
+      { label: "Europe", href: "/world-stocks?region=europe" },
+      { label: "Asia & Pacific", href: "/world-stocks?region=asia" },
+      { label: "United Kingdom", href: "/world-stocks?region=uk" },
+    ]
+  },
+  // Indices
+  {
+    category_id: "indices",
+    title: "India",
+    items: [
+      { label: "NIFTY 50", href: "/indices" },
+      { label: "SENSEX", href: "/indices" },
+      { label: "BANK NIFTY", href: "/indices" },
+    ]
+  },
+  // News
+  {
     category_id: "news",
     title: "Categories",
     items: [
@@ -125,6 +172,49 @@ const subCategories: SubCategory[] = [
       { label: "Markets", href: "/market" },
       { label: "Economy", href: "/market" },
       { label: "Companies", href: "/screener" },
+    ]
+  },
+  // Futures, Forex, Bonds, ETFs, Economy  — placeholders
+  {
+    category_id: "futures",
+    title: "Commodity Futures",
+    items: [
+      { label: "Gold", href: "/screener" },
+      { label: "Crude Oil", href: "/screener" },
+      { label: "Natural Gas", href: "/screener" },
+    ]
+  },
+  {
+    category_id: "forex",
+    title: "Currency Pairs",
+    items: [
+      { label: "USD / INR", href: "/screener" },
+      { label: "EUR / USD", href: "/screener" },
+      { label: "GBP / USD", href: "/screener" },
+    ]
+  },
+  {
+    category_id: "bonds",
+    title: "Government Bonds",
+    items: [
+      { label: "India 10Y", href: "/indices" },
+      { label: "US 10Y Treasury", href: "/dashboard-us" },
+    ]
+  },
+  {
+    category_id: "etfs",
+    title: "ETFs",
+    items: [
+      { label: "India ETFs", href: "/market" },
+      { label: "Global ETFs", href: "/dashboard-us" },
+    ]
+  },
+  {
+    category_id: "economy",
+    title: "Economic Data",
+    items: [
+      { label: "India GDP & Macro", href: "/dashboard" },
+      { label: "US Economy", href: "/dashboard-us" },
     ]
   },
 ];

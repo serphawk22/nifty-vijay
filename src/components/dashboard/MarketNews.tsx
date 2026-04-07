@@ -14,7 +14,11 @@ interface NewsItem {
   id: string;
 }
 
-export function MarketNews() {
+interface MarketNewsProps {
+  region?: "in" | "us";
+}
+
+export function MarketNews({ region = "in" }: MarketNewsProps) {
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -22,7 +26,7 @@ export function MarketNews() {
   useEffect(() => {
     const fetchNews = async () => {
       try {
-        const res = await fetch("/api/news");
+        const res = await fetch(`/api/news?region=${region}`);
         if (!res.ok) throw new Error("Failed to fetch news");
         const json = await res.json();
 
@@ -40,17 +44,17 @@ export function MarketNews() {
     };
 
     fetchNews();
-  }, []);
+  }, [region]);
 
   return (
     <div className="w-full">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h3 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-3">
-            <Newspaper className="w-6 h-6 text-blue-500" /> Latest Market News
+            <Newspaper className="w-6 h-6 text-blue-500" /> Latest {region === "us" ? "US" : "Market"} News
           </h3>
           <p className="text-muted-foreground mt-1 text-sm flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-green-500" /> Curated updates on Indian Markets, NSE, and BSE
+            <TrendingUp className="w-4 h-4 text-green-500" /> {region === "us" ? "Curated updates on S&P 500, NASDAQ, and US Markets" : "Curated updates on Indian Markets, NSE, and BSE"}
           </p>
         </div>
         <div className="flex items-center gap-2">

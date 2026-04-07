@@ -7,13 +7,13 @@ import { useEffect, useState } from "react";
 import { fetchStockQuotes, StockQuote } from "@/lib/stock-api";
 import Link from "next/link";
 
-// Initial stocks for SSR/loading state
+// Initial stocks for India Market
 const INITIAL_STOCKS: StockQuote[] = [
   { symbol: "RELIANCE", name: "Reliance Industries", price: 2845.50, change: 45.30, changePercent: 1.62, trending: "up", lastUpdated: "" },
   { symbol: "TCS", name: "Tata Consultancy Services", price: 3920.75, change: 82.15, changePercent: 2.14, trending: "up", lastUpdated: "" },
   { symbol: "INFY", name: "Infosys Limited", price: 1678.90, change: 35.40, changePercent: 2.15, trending: "up", lastUpdated: "" },
   { symbol: "HDFCBANK", name: "HDFC Bank", price: 1542.30, change: -18.50, changePercent: -1.19, trending: "down", lastUpdated: "" },
-  { symbol: "TATAMOTORS", name: "Tata Motors", price: 892.45, change: 12.80, changePercent: 1.45, trending: "up", lastUpdated: "" },
+  { symbol: "ADANIGREEN", name: "Adani Green Energy", price: 980.00, change: 15.00, changePercent: 1.55, trending: "up", lastUpdated: "" },
   { symbol: "WIPRO", name: "Wipro Limited", price: 445.20, change: 8.50, changePercent: 1.95, trending: "up", lastUpdated: "" },
   { symbol: "ITC", name: "ITC Limited", price: 412.80, change: -5.20, changePercent: -1.24, trending: "down", lastUpdated: "" },
   { symbol: "BHARTIARTL", name: "Bharti Airtel", price: 1285.60, change: 22.40, changePercent: 1.77, trending: "up", lastUpdated: "" },
@@ -26,9 +26,28 @@ const INITIAL_STOCKS: StockQuote[] = [
   { symbol: "SUNPHARMA", name: "Sun Pharma", price: 1678.50, change: -12.40, changePercent: -0.73, trending: "down", lastUpdated: "" },
 ];
 
-export function StockCarousel() {
+// Initial stocks for US Market
+const INITIAL_STOCKS_US: StockQuote[] = [
+  { symbol: "AAPL", name: "Apple Inc.", price: 185.90, change: 1.25, changePercent: 0.68, trending: "up", lastUpdated: "" },
+  { symbol: "MSFT", name: "Microsoft Corporation", price: 415.75, change: 3.15, changePercent: 0.76, trending: "up", lastUpdated: "" },
+  { symbol: "GOOGL", name: "Alphabet Inc.", price: 152.40, change: -1.20, changePercent: -0.78, trending: "down", lastUpdated: "" },
+  { symbol: "AMZN", name: "Amazon.com Inc.", price: 178.30, change: 2.45, changePercent: 1.39, trending: "up", lastUpdated: "" },
+  { symbol: "TSLA", name: "Tesla, Inc.", price: 165.20, change: -4.50, changePercent: -2.65, trending: "down", lastUpdated: "" },
+  { symbol: "NVDA", name: "NVIDIA Corporation", price: 895.60, change: 12.40, changePercent: 1.41, trending: "up", lastUpdated: "" },
+  { symbol: "META", name: "Meta Platforms", price: 505.40, change: 8.30, changePercent: 1.67, trending: "up", lastUpdated: "" },
+  { symbol: "BRK-B", name: "Berkshire Hathaway", price: 410.75, change: 1.60, changePercent: 0.39, trending: "up", lastUpdated: "" },
+  { symbol: "V", name: "Visa Inc.", price: 282.40, change: -0.90, changePercent: -0.32, trending: "down", lastUpdated: "" },
+  { symbol: "UNH", name: "UnitedHealth Group", price: 485.20, change: 5.40, changePercent: 1.13, trending: "up", lastUpdated: "" },
+];
+
+interface StockCarouselProps {
+  region?: "in" | "us";
+}
+
+export function StockCarousel({ region = "in" }: StockCarouselProps) {
   const { stockData } = useSocket();
-  const [stocks, setStocks] = useState<StockQuote[]>(INITIAL_STOCKS);
+  const initialList = region === "us" ? INITIAL_STOCKS_US : INITIAL_STOCKS;
+  const [stocks, setStocks] = useState<StockQuote[]>(initialList);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,14 +57,14 @@ export function StockCarousel() {
       setLoading(true);
       setError(null);
 
-      // Get all symbols from INITIAL_STOCKS
-      const symbols = INITIAL_STOCKS.map(s => s.symbol);
+      // Get all symbols from the regional list
+      const symbols = initialList.map((s: StockQuote) => s.symbol);
       const response = await fetchStockQuotes(symbols);
 
       if (response.success && Array.isArray(response.data)) {
         const liveQuotes = response.data;
 
-        const mappedStocks = INITIAL_STOCKS.map(initialStock => {
+        const mappedStocks = initialList.map((initialStock: StockQuote) => {
           const liveQuote = liveQuotes.find(
             (q: any) => q.symbol.toUpperCase() === initialStock.symbol.toUpperCase()
           );
@@ -73,13 +92,11 @@ export function StockCarousel() {
 
     loadStocks();
 
-    // Poll for updates every 10 seconds
     const interval = setInterval(loadStocks, 10000);
-
     return () => clearInterval(interval);
-  }, []);
+  }, [region]);
 
-  // Integrate WebSocket real-time data (if available)
+  // Integrated WebSocket real-time data
   useEffect(() => {
     if (stockData) {
       const updates = Array.isArray(stockData) ? stockData : [stockData];
@@ -87,46 +104,21 @@ export function StockCarousel() {
       setStocks(currentStocks => {
         const newStocks = [...currentStocks];
         updates.forEach((update: any) => {
-          // Handle updates from custom WebSocket server (uses symbol)
           if (update.symbol) {
-            const index = newStocks.findIndex(s => s.symbol === update.symbol);
+            const index = newStocks.findIndex(s => s.symbol.toUpperCase() === update.symbol.toUpperCase());
             if (index !== -1) {
               const oldPrice = newStocks[index].price;
               const newPrice = update.price;
               const change = update.change;
-
-              // Calculate percentage change if not provided
-              const changePercent = update.changePercent || ((change / (newPrice - change)) * 100).toFixed(2);
+              const changePercent = update.percent || update.changePercent || ((change / (newPrice - change)) * 100).toFixed(2);
 
               newStocks[index] = {
                 ...newStocks[index],
                 price: newPrice,
                 change: change,
-                changePercent: parseFloat(changePercent),
+                changePercent: parseFloat(changePercent as string),
                 trending: newPrice >= oldPrice ? "up" : "down"
               };
-            }
-          }
-          // Legacy handling for direct Kite tick data (uses instrument_token)
-          else {
-            let targetSymbol = "";
-            if (update.instrument_token === 738561) targetSymbol = "RELIANCE";
-            else if (update.instrument_token === 2953217) targetSymbol = "TCS";
-            else if (update.instrument_token === 408065) targetSymbol = "INFY";
-            else if (update.instrument_token === 340481) targetSymbol = "HDFCBANK";
-            else if (update.instrument_token === 884737) targetSymbol = "TATAMOTORS";
-
-            if (targetSymbol) {
-              const index = newStocks.findIndex(s => s.symbol === targetSymbol);
-              if (index !== -1) {
-                const oldPrice = newStocks[index].price;
-                const newPrice = update.last_price;
-                newStocks[index] = {
-                  ...newStocks[index],
-                  price: newPrice,
-                  trending: newPrice >= oldPrice ? "up" : "down"
-                };
-              }
             }
           }
         });
@@ -135,17 +127,14 @@ export function StockCarousel() {
     }
   }, [stockData]);
 
-  // Duplicate stocks for infinite scroll effect (only 2x for single screen)
   const duplicatedStocks = [...stocks, ...stocks];
 
   return (
     <div className="relative w-full overflow-hidden">
-      {/* Gradient Fade Edges */}
       <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-32 bg-gradient-to-r from-background to-transparent" />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-32 bg-gradient-to-l from-background to-transparent" />
 
-      {/* Loading/Error States */}
-      {loading && (
+      {loading && stocks.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center z-20">
           <div className="text-muted-foreground text-sm">Loading stocks...</div>
         </div>
@@ -153,19 +142,20 @@ export function StockCarousel() {
 
       <div className="flex gap-8 py-10 animate-scroll">
         {duplicatedStocks.map((stock, index) => {
-          const isPositive = stock.trending === "up";
-          const isFeatured = stock.symbol === "RELIANCE" || stock.symbol === "TCS";
+          const isPositive = stock.trending === "up" || stock.change >= 0;
+          const isFeatured = region === "in" 
+            ? (stock.symbol === "RELIANCE" || stock.symbol === "TCS")
+            : (stock.symbol === "AAPL" || stock.symbol === "NVDA");
 
           return (
             <Link
-              href={`/stock/${encodeURIComponent(stock.symbol)}`}
+              href={region === "us" ? `/us-stocks/${encodeURIComponent(stock.symbol)}` : `/stock/${encodeURIComponent(stock.symbol)}`}
               key={`${stock.symbol}-${index}`}
               className={cn(
                 "group relative flex h-72 w-80 flex-shrink-0 flex-col justify-between rounded-[2.5rem] border border-border bg-card p-8 backdrop-blur-2xl transition-all duration-500 hover:-translate-y-3 hover:border-border/50 hover:shadow-2xl",
                 isFeatured && "border-blue-500/20 shadow-[0_0_80px_-20px_rgba(37,99,235,0.3)]"
               )}
             >
-              {/* Background Glow */}
               <div className={cn(
                 "absolute -inset-px rounded-[2.5rem] opacity-0 group-hover:opacity-100 transition-opacity duration-500",
                 isPositive
@@ -173,7 +163,6 @@ export function StockCarousel() {
                   : "bg-gradient-to-br from-rose-500/10 via-transparent to-transparent"
               )} />
 
-              {/* Top Row: Symbol & Icon */}
               <div className="relative z-10 flex items-start justify-between">
                 <div className="flex items-center gap-4">
                   <div className={cn(
@@ -199,24 +188,22 @@ export function StockCarousel() {
                 </div>
               </div>
 
-              {/* Bottom Row: Price & Chart Spark (Conceptual Glow) */}
               <div className="relative z-10 mt-6">
                 <div className="mb-1 text-xs font-medium text-muted-foreground">Current Price</div>
                 <div className="flex items-baseline gap-2">
                   <span className="text-4xl font-black tracking-tighter text-foreground">
-                    ₹{stock.price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {region === "us" ? "$" : "₹"}{stock.price.toLocaleString(region === "us" ? 'en-US' : 'en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                 </div>
                 <div className={cn(
                   "mt-2 inline-flex items-center gap-1 text-sm font-semibold px-3 py-1 rounded-full",
                   isPositive ? "text-emerald-400 bg-emerald-400/10" : "text-rose-400 bg-rose-400/10"
                 )}>
-                  <span>{isPositive ? "+" : ""}{stock.change.toFixed(2)}</span>
-                  <span className="opacity-60">({stock.changePercent.toFixed(2)}%)</span>
+                  <span>{isPositive ? "+" : "-"}{Math.abs(stock.change).toFixed(2)}</span>
+                  <span className="opacity-60">({Math.abs(stock.changePercent).toFixed(2)}%)</span>
                 </div>
               </div>
 
-              {/* Premium Accents */}
               <div className="absolute bottom-6 right-6 opacity-20 group-hover:opacity-100 transition-opacity duration-500">
                 <div className={cn(
                   "h-1.5 w-8 rounded-full",

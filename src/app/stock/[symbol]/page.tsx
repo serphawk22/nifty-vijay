@@ -14,7 +14,7 @@ import { useSocket } from "@/hooks/use-socket";
 export default function StockPage() {
   const params = useParams();
   const router = useRouter();
-  const symbol = (params.symbol as string)?.toUpperCase();
+  const symbol = decodeURIComponent(params.symbol as string || "").toUpperCase();
   const [stockData, setStockData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +66,7 @@ export default function StockPage() {
 
     const fetchStockData = async () => {
       try {
-        const res = await fetch(`/api/stocks/quotes?symbols=${symbol}`);
+        const res = await fetch(`/api/stocks/quotes?symbols=${encodeURIComponent(symbol)}`);
         const data = await res.json();
 
         if (data.success && data.data.length > 0) {
