@@ -1,20 +1,17 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import jwt from "jsonwebtoken";
-
-const JWT_SECRET = process.env.JWT_SECRET || "your-super-secret-jwt-key";
+import { verifyToken, extractTokenFromHeader } from "@/lib/auth";
 
 // Helper to authenticate
 function getUserFromToken(request: Request) {
-  const token = request.headers.get("Authorization")?.replace("Bearer ", "");
+  const authHeader = request.headers.get("Authorization");
+  const token = extractTokenFromHeader(authHeader);
   if (!token) return null;
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: string };
-    return decoded;
-  } catch (error) {
-    return null;
-  }
+  const payload = verifyToken(token);
+  if (!payload) return null;
+
+  return { id: payload.userId };
 }
 
 export async function GET(request: Request) {

@@ -5,9 +5,14 @@ const WEAK_DEFAULT = "your-secret-key-change-in-production";
 const JWT_SECRET = process.env.JWT_SECRET || WEAK_DEFAULT;
 const JWT_EXPIRES_IN = "7d";
 
-// Hard-fail in production if JWT_SECRET is using the insecure default
+// Hard-fail in production if JWT_SECRET is using the insecure default, 
+// but skip the throw during the Next.js build phase.
 if (process.env.NODE_ENV === "production" && JWT_SECRET === WEAK_DEFAULT) {
-  throw new Error("JWT_SECRET environment variable must be set in production!");
+  if (process.env.NEXT_PHASE === "phase-production-build") {
+    console.warn("⚠️  WARNING: JWT_SECRET is using the insecure default during build. Make sure it is correctly set in your production environment settings.");
+  } else {
+    throw new Error("❌ JWT_SECRET environment variable must be set in production! Please configure it in your environment settings.");
+  }
 }
 
 export interface JWTPayload {
